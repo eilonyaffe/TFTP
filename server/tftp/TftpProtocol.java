@@ -15,7 +15,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
     private boolean shouldTerminate; //eliya - is it necessary to make it volatile
     private int connectionId;
-    private  Connections<byte[]> connections;
+    private Connections<byte[]> connections;
+    private boolean logged_in = false;
+
 
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
@@ -30,47 +32,59 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         // TODO implement this
         byte opcode = message[1];
 
-        if (opcode == 1)
-            readRequest(message);
-
-        else if (opcode == 2)
-            writeRequest(message);
-
-        else if (opcode == 3)
-            dataPacketOp(message);
-
-        // else if (opcode == 4)
-            // ackOperation(message);
-
-        // else if (opcode == 5)
-        //     //errorOperation(message);
-
-        else if (opcode == 6)
-            listingRequest(message);
-
-        else if (opcode == 7){
-            boolean successfulLogIn = this.logOperation(message);
-            if(successfulLogIn){
-                //TODO: return ACK
-                connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
-                System.out.println("LOGRQ was completed successfully: " + successfulLogIn);
+        if(!logged_in){
+            if(opcode == 7){
+                boolean successfulLogIn = this.logOperation(message);
+                if(successfulLogIn){
+                    //TODO: return ACK
+                    this.logged_in = true;
+                    connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+                    System.out.println("LOGRQ was completed successfully: " + successfulLogIn);
+                }
+                else{
+                    //TODO: return ERROR
+                    connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(7)); //when to use error 6:User not logged in - Any opcode received before Login completes?
+                }
             }
-            else{
-                //TODO: return ERROR
-                connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(7)); //when to use error 6:User not logged in - Any opcode received before Login completes?
-                //delete user from inactive connections
+
+            else{          
+                //TODO insert error of user that wasn't logged in, and made non-LOGRQ request (he is in inactive_connections)
             }
         }
+
+        else{ //user is logged in
+            if (opcode == 1)
+                readRequest(message);
+
+            else if (opcode == 2)
+                writeRequest(message);
+
+            else if (opcode == 3)
+                dataPacketOp(message);
+
+            // else if (opcode == 4)
+                // ackOperation(message);
+
+            // else if (opcode == 5)
+            //     //errorOperation(message);
+
+            else if (opcode == 6)
+                listingRequest(message);
+
+            else if (opcode == 7){ //logged in, and wanted to do another LOGRQ. will send error
+                connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(7)); //is error 7 correct for this case?
+            }
             
-        else if (opcode == 8)
-            deleteFile(message);
+            else if (opcode == 8)
+                deleteFile(message);
 
-        else if (opcode == 9)
-            bcastOperation(message);
+            else if (opcode == 9)
+                bcastOperation(message);
 
-        else if (opcode == 10)
-            disconnectOp(message);
+            else if (opcode == 10)
+                disconnectOp(message);
 
+        }//end of else
     }
 
     //handles RRQ message sent from client to server
@@ -160,22 +174,20 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
     //handles LOGRQ message sent from client to server
     private boolean logOperation(byte[] message){
-        if(connectionsHolder.connectionsObj.inactive_connections.containsKey(connectionId)){
-            ConnectionHandler<byte[]> BCH = connectionsHolder.connectionsObj.inactive_connections.get(connectionId);
-            String name = "";
-            try{
-                name = new String(message, "UTF-8"); //should check if legal?
-            } catch(UnsupportedEncodingException e){}
-            System.out.println("name entered was: "+name);
-            int checkUserName = name.hashCode(); //assuming valid input from user
-            if(connectionsHolder.connectionsObj.active_connections.containsKey(checkUserName)) return false; //there's already a client with that name. TODO also need to terminate client? probably not
-            else{ //was inactive, now should be activated
-                this.connectionId = checkUserName;
-                connectionsHolder.connectionsObj.connect(this.connectionId, BCH); //will insert to active connections
-                return true;
-            }
+        ConnectionHandler<byte[]> BCH = connectionsHolder.connectionsObj.inactive_connections.get(connectionId);
+        String name = "";
+        try{
+            name = new String(message, "UTF-8"); //should check if legal?
+        } catch(UnsupportedEncodingException e){}
+        System.out.println("name entered was: "+name);
+        int checkUserName = name.hashCode(); //assuming valid input from user
+        if(connectionsHolder.connectionsObj.active_connections.containsKey(checkUserName)) return false; //there's already a client with that name. TODO also need to terminate client? probably not
+        else{ //was inactive, has legal unique name, now should be activated
+            connectionsHolder.connectionsObj.inactive_connections.remove(this.connectionId);
+            this.connectionId = checkUserName;
+            connectionsHolder.connectionsObj.connect(this.connectionId, BCH); //will insert to active connections
+            return true;
         }
-        return false;
     }
 
     //handles DELRQ message sent from client to server
