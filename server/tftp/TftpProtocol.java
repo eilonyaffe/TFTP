@@ -57,12 +57,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             }
             else{
                 //TODO: return ERROR
-                connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(7)); //when to use error 6:User not logged in - Any opcode received before Login completes?
+                connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(7)); //when to use error 6:User not logged in - Any opcode received before Login completes?
                 //delete user from inactive connections
             }
         }
             
-
         else if (opcode == 8)
             deleteFile(message);
 

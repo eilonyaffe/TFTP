@@ -1,7 +1,7 @@
 package bgu.spl.net.impl.tftp;
 import java.util.*;
 
-public class ErrorsHolderDict { //Singelton Class
+public class ErrorsHolderDict { //Singelton Class - check if for each client thread it is initialized or just once??
     private static ErrorsHolderDict singleInstance = null; //makes sure only one instance of this dictionery is created
     private Map<Integer, String> errorsHolder;
 
@@ -13,6 +13,7 @@ public class ErrorsHolderDict { //Singelton Class
     public static ErrorsHolderDict getInstance(){
         if (singleInstance == null) {
             singleInstance = new ErrorsHolderDict();
+            System.out.println("errors dict initialized");
         }
         return singleInstance;
     }

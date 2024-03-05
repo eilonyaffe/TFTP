@@ -13,11 +13,10 @@ public class TftpConnections<T> implements Connections<T> {
 
     
     @Override
-    public boolean connect(int connectionId, ConnectionHandler<T> handler){ //eilon - kept generic, but will be blockingConnectionHandler
+    public void connect(int connectionId, ConnectionHandler<T> handler){ //eilon - kept generic, but will be blockingConnectionHandler
         //TODO implement
         this.active_connections.put(connectionId, handler);
         System.out.println("made connection to active!");
-        return true;
     }
 
     public void basicConnect(int connectionId, ConnectionHandler<T> handler){
@@ -28,6 +27,12 @@ public class TftpConnections<T> implements Connections<T> {
     public boolean send(int connectionId, T msg){
         //TODO implement
         this.active_connections.get(connectionId).send(msg);
+        return false; //eilon - change?
+    }
+
+    public boolean sendInactive(int connectionId, T msg){
+        //TODO implement
+        this.inactive_connections.get(connectionId).send(msg);
         return false; //eilon - change?
     }
 
