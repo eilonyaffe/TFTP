@@ -37,12 +37,11 @@ public abstract class BaseServer<T> implements Server<T> {
             while (!Thread.currentThread().isInterrupted()) {
 
                 Socket clientSock = serverSock.accept();
-
                 BlockingConnectionHandler<T> handler = new BlockingConnectionHandler<>(
                         clientSock,
                         encdecFactory.get(),
                         protocolFactory.get());
-                        connectionsHolder.activeConnections.basicConnect(port, (ConnectionHandler) handler); //TODO check if works
+
                 //TODO insert this handler into connections, with the basic_connect method
                 execute(handler);
             }
