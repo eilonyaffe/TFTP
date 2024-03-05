@@ -75,7 +75,8 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                     this.packetSizeArray[this.packetSizeAccepted]=nextByte;
                 }
                 if(this.packetSizeAccepted==1){
-                    this.counter = ( short ) ((( short ) packetSizeArray [0]) << 8 | ( short ) ( packetSizeArray [1]) ) +2; //plus two for incoming block number
+                    this.counter = ( short ) ((( short ) packetSizeArray [0] & 0xFF) << 8 | ( short ) ( packetSizeArray [1] & 0xFF) ) +2; //plus two for incoming block number
+                    //fixed said problem from forum, former line: this.counter = ( short ) ((( short ) packetSizeArray [0]) << 8 | ( short ) ( packetSizeArray [1]) ) +2; //plus two for incoming block number
                 }
                 else if(this.counter!=-1){
                     this.counter--;
