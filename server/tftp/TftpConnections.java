@@ -7,34 +7,39 @@ import bgu.spl.net.srv.Connections;
 
 public class TftpConnections<T> implements Connections<T> {
 
-    protected ConcurrentHashMap<Integer, Pair<ConnectionHandler<T>, Boolean>> client_connections = new ConcurrentHashMap<>(); //neya changed
+    protected ConcurrentHashMap<Integer, ConnectionHandler<T>> active_connections = new ConcurrentHashMap<>(); //neya changed
+    protected ConcurrentHashMap<Integer, ConnectionHandler<T>> inactive_connections = new ConcurrentHashMap<>(); //neya changed
+    protected int inactive_counter = -1;
+
     
     @Override
     public boolean connect(int connectionId, ConnectionHandler<T> handler){ //eilon - kept generic, but will be blockingConnectionHandler
         //TODO implement
-        if (this.client_connections.containsKey(connectionId) && this.client_connections.get(connectionId).getSecond()==false){ //think if possible to reach this when not contains key at all, shouldn't happen
-            this.client_connections.get(connectionId).setSecond(true);
-            return true;
-        }
-        //this.client_connections.remove(connectionId); //currently removes user with equal id to another user which is already logged in - should remove after sending him error pkg maybe?
-        return false; //client is already exists in the network
+        this.active_connections.put(connectionId, handler);
+        System.out.println("made connection to active!");
+        return true;
     }
 
     public void basicConnect(int connectionId, ConnectionHandler<T> handler){
-        this.client_connections.put(connectionId, new Pair<>(handler, false));
-        
+        this.inactive_connections.put(connectionId, handler);
     }
 
     @Override
     public boolean send(int connectionId, T msg){
         //TODO implement
-        this.client_connections.get(connectionId).getFirst().send(msg);
+        this.active_connections.get(connectionId).send(msg);
         return false; //eilon - change?
     }
 
     @Override
     public void disconnect(int connectionId){
         //TODO implement
-        this.client_connections.remove(connectionId);
+        this.active_connections.remove(connectionId);
+    }
+
+    public int getUniqueInactiveID(){
+        //TODO implement
+        this.inactive_counter++;
+        return this.inactive_counter;
     }
 }
