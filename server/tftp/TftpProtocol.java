@@ -126,15 +126,15 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private boolean logOperation(byte[] message){
         if(connectionsHolder.connectionsObj.inactive_connections.containsKey(connectionId)){
             ConnectionHandler<byte[]> BCH = connectionsHolder.connectionsObj.inactive_connections.get(connectionId);
-            connectionsHolder.connectionsObj.inactive_connections.remove(connectionId);
             String name = "";
             try{
                 name = new String(message, "UTF-8"); //should check if legal?
             } catch(UnsupportedEncodingException e){}
             System.out.println("name entered was: "+name);
-            this.connectionId = name.hashCode(); //assuming valid input from user
-            if(connectionsHolder.connectionsObj.inactive_connections.containsKey(connectionId)) return false; //there's already a client with that name. TODO also need to terminate client? probably not
+            int checkUserName = name.hashCode(); //assuming valid input from user
+            if(connectionsHolder.connectionsObj.active_connections.containsKey(checkUserName)) return false; //there's already a client with that name. TODO also need to terminate client? probably not
             else{ //was inactive, now should be activated
+                this.connectionId = checkUserName;
                 connectionsHolder.connectionsObj.connect(this.connectionId, BCH); //will insert to active connections
                 return true;
             }
