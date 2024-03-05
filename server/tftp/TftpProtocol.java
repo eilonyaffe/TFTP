@@ -35,8 +35,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         else if (opcode == 3)
             dataPacketOp(message);
 
-        else if (opcode == 4)
-            ackOperation(message);
+        // else if (opcode == 4)
+            // ackOperation(message);
 
         else if (opcode == 5)
             errorOperation(message);
@@ -48,6 +48,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             boolean successfulLogIn = this.logOperation(message);
             if(successfulLogIn){
                 //TODO: return ACK
+                connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
             }
             else{
                 //TODO: return ERROR
@@ -103,8 +104,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     }
 
     //handles ACK message sent from server to client
-    private void ackOperation(byte[] message){
-        //TODO
+    private byte[] ackOperation(int blockNum){
+        short a = 4;
+        byte[] a_bytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
+        byte[] b_bytes = new byte []{( byte ) ( blockNum >> 8) , ( byte ) ( blockNum & 0xff ) };
+        byte[] ack = new byte[]{a_bytes[0], a_bytes[1], b_bytes[0], b_bytes[1]};
+        return ack;
     }
 
     //handles ERROR message sent from server to client
