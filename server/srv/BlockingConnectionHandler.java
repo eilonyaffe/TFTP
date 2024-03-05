@@ -6,6 +6,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import bgu.spl.net.impl.tftp.connectionsHolder;
 
 public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler<T> {
 
@@ -30,14 +31,19 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
             in = new BufferedInputStream(sock.getInputStream());
             out = new BufferedOutputStream(sock.getOutputStream());
 
+            //new from here
+            int connectionId = connectionsHolder.getUniqueID();
+            protocol.start(connectionId ,(Connections<T>) connectionsHolder.activeConnections);
+            System.out.println("started protocol, id is: "+connectionId);
+
+            connectionsHolder.activeConnections.basicConnect(connectionId, (ConnectionHandler) this); //TODO check if works. need to change from 1967!! just placeholder
+            System.out.println("inserted to connections, not activated yet");
+            //until here
+
             while (!protocol.shouldTerminate() && connected && (read = in.read()) >= 0) {
                 T nextMessage = encdec.decodeNextByte((byte) read);
                 if (nextMessage != null) {
                     protocol.process(nextMessage);
-                    // if (response != null) {
-                    //     out.write(encdec.encode(response));
-                    //     out.flush();
-                    // }
                 }
             }
 
