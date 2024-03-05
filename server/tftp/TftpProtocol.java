@@ -1,10 +1,14 @@
 package bgu.spl.net.impl.tftp;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.nio.file.*;
 import bgu.spl.net.api.BidiMessagingProtocol;
+import bgu.spl.net.srv.ConnectionHandler;
 import bgu.spl.net.srv.Connections;
 
 public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
@@ -38,8 +42,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         // else if (opcode == 4)
             // ackOperation(message);
 
-        else if (opcode == 5)
-            errorOperation(message);
+        // else if (opcode == 5)
+        //     //errorOperation(message);
 
         else if (opcode == 6)
             listingRequest(message);
@@ -49,11 +53,13 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             if(successfulLogIn){
                 //TODO: return ACK
                 connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+                System.out.println("LOGRQ was completed successfully: " + successfulLogIn);
             }
             else{
                 //TODO: return ERROR
+                connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(7)); //when to use error 6:User not logged in - Any opcode received before Login completes?
+                //delete user from inactive connections
             }
-            System.out.println("LOGRQ was completed successfully: "+successfulLogIn);
         }
             
 
@@ -76,26 +82,43 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
         Path filePath = Paths.get("Files", filename); //constructs the path to the file
-
+        boolean isExist = false;
         try {
-            boolean isExist = Files.exists(filePath);
+            isExist = Files.exists(filePath);
         } catch (SecurityException e) {} //needed?? maybe not? - neya
 
-        //read block former should come here
-
         //TODO
-        // if(isExist)
-        //     //dataPacketOp() - change get filePath and opcode - i want to send the file to the client - using DATA pkg
-        // else
-        //     //send ERROR pkg
+        if(isExist){
+            //send DATA pkg with the claimed file
+        }
+
+        else{
+            //send error pkg
+        }
     }
 
     //handles WRQ message sent from client to server
     private void writeRequest(byte[] message){
         //TODO
 
-        //write block former should come here
-        
+        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 2);
+
+        // Convert byte array to string using UTF-8
+        String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
+        Path filePath = Paths.get("Files", filename); //constructs the path to the file
+        boolean isExist = false;
+        try {
+            isExist = Files.exists(filePath);
+        } catch (SecurityException e) {} //needed?? maybe not? - neya
+
+        //TODO
+        if(isExist){
+            //get DATA pkg with the claimed file
+        }
+
+        else{
+            //send error pkg
+        }  
     }
 
     //handles DATA message sent from server to client
@@ -113,8 +136,22 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     }
 
     //handles ERROR message sent from server to client
-    private void errorOperation(byte[] message){
-        //TODO
+    private byte[] errorOperation(int errorCode){
+        ErrorsHolderDict errorsDict = ErrorsHolderDict.getInstance();
+        short opcode = 5;
+        short eCode = (short)errorCode;
+        byte[] op_bytes = new byte []{( byte ) ( opcode >> 8) , ( byte ) ( opcode & 0xff ) };
+        byte[] eNum_bytes = new byte []{( byte ) ( eCode >> 8) , ( byte ) ( eCode & 0xff ) };
+        byte[] eStr_bytes = errorsDict.getErrorByNumber(errorCode).getBytes();
+        
+        int totalLength = op_bytes.length + eNum_bytes.length + eStr_bytes.length + 1; //+1 for the 0 last byte
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        buffer.put(op_bytes);
+        buffer.put(eNum_bytes);
+        buffer.put(eStr_bytes);
+        buffer.put((byte) 0);
+
+        return buffer.array(); 
     }
 
     //handles DIRQ message sent from client to server
