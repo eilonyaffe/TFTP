@@ -32,11 +32,11 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
             out = new BufferedOutputStream(sock.getOutputStream());
 
             //new from here
-            int connectionId = connectionsHolder.getUniqueID();
-            protocol.start(connectionId ,(Connections<T>) connectionsHolder.activeConnections);
-            System.out.println("started protocol, id is: "+connectionId);
+            int demoConnectionId = connectionsHolder.getUniqueID();
+            protocol.start(demoConnectionId ,(Connections<T>) connectionsHolder.connectionsObj);
+            System.out.println("started protocol, demo id is: "+demoConnectionId);
 
-            connectionsHolder.activeConnections.basicConnect(connectionId, (ConnectionHandler) this); //TODO check if works. need to change from 1967!! just placeholder
+            connectionsHolder.connectionsObj.basicConnect(demoConnectionId, (ConnectionHandler) this); //TODO check if works. need to change from 1967!! just placeholder
             System.out.println("inserted to connections, not activated yet");
             //until here
 
