@@ -2,8 +2,8 @@ package bgu.spl.net.impl.tftp;
 
 public class Pair<K, V> {
 
-    private final K first;
-    private final V second;
+    private K first;
+    private V second;
 
     public Pair(K first, V second) {
         this.first = first;
@@ -20,5 +20,13 @@ public class Pair<K, V> {
 
     public V getSecond() {
         return second;
+    }
+
+    public void setFirst(K first) {
+        this.first = first;
+    }
+
+    public void setSecond(V second) {
+        this.second = second;
     }
 }
