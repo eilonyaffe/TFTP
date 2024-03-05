@@ -45,8 +45,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             listingRequest(message);
 
         else if (opcode == 7){
-            boolean isDone = this.connections.connect(connectionId, null); //where should i get the connection handler of the client from?
-            // if (!isDone) 
+            boolean isDone = connectionsHolder.activeConnections.connect(connectionId, null); //connect doesn't need the handler
+           // if (!isDone) 
             //     //TODO: return ERROR
             // else{
             //     //TODO: return ACK
@@ -78,9 +78,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             boolean isExist = Files.exists(filePath);
         } catch (SecurityException e) {} //needed?? maybe not? - neya
 
+        //read block former should come here
+
         //TODO
         // if(isExist)
-        //     //i want to send the file to the client - using DATA pkg
+        //     //dataPacketOp() - change get filePath and opcode - i want to send the file to the client - using DATA pkg
         // else
         //     //send ERROR pkg
     }
@@ -88,6 +90,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles WRQ message sent from client to server
     private void writeRequest(byte[] message){
         //TODO
+
+        //write block former should come here
         
     }
 
