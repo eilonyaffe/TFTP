@@ -45,12 +45,14 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             listingRequest(message);
 
         else if (opcode == 7){
-            boolean isDone = connectionsHolder.activeConnections.connect(connectionId, null); //connect doesn't need the handler
-           // if (!isDone) 
-            //     //TODO: return ERROR
-            // else{
-            //     //TODO: return ACK
-            // }
+            boolean successfulLogIn = this.logOperation(message);
+            if(successfulLogIn){
+                //TODO: return ACK
+            }
+            else{
+                //TODO: return ERROR
+            }
+            System.out.println("LOGRQ was completed successfully: "+successfulLogIn);
         }
             
 
@@ -116,8 +118,23 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     }
 
     //handles LOGRQ message sent from client to server
-    private void logOperation(byte[] message){
-        //TODO
+    private boolean logOperation(byte[] message){
+        if(connectionsHolder.connectionsObj.inactive_connections.containsKey(connectionId)){
+            ConnectionHandler<byte[]> BCH = connectionsHolder.connectionsObj.inactive_connections.get(connectionId);
+            connectionsHolder.connectionsObj.inactive_connections.remove(connectionId);
+            String name = "";
+            try{
+                name = new String(message, "UTF-8"); //should check if legal?
+            } catch(UnsupportedEncodingException e){}
+            System.out.println("name entered was: "+name);
+            this.connectionId = name.hashCode(); //assuming valid input from user
+            if(connectionsHolder.connectionsObj.inactive_connections.containsKey(connectionId)) return false; //there's already a client with that name. TODO also need to terminate client? probably not
+            else{ //was inactive, now should be activated
+                connectionsHolder.connectionsObj.connect(this.connectionId, BCH); //will insert to active connections
+                return true;
+            }
+        }
+        return false;
     }
 
     //handles DELRQ message sent from client to server
