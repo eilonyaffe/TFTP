@@ -1,11 +1,15 @@
 package bgu.spl.net.impl.tftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.nio.file.*;
 import bgu.spl.net.api.BidiMessagingProtocol;
 import bgu.spl.net.srv.ConnectionHandler;
@@ -17,6 +21,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private int connectionId;
     private Connections<byte[]> connections;
     private boolean logged_in = false;
+    private boolean handling_data = false;
+    private String incomingFileName = null;
+    private ArrayList<byte[]> incomingData = new ArrayList<>();
 
 
     @Override
@@ -34,33 +41,24 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
         if(!logged_in){
             if(opcode == 7){
-                boolean successfulLogIn = this.logOperation(message);
-                if(successfulLogIn){
-                    //TODO: return ACK
-                    this.logged_in = true;
-                    connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
-                    System.out.println("LOGRQ was completed successfully: " + successfulLogIn);
-                }
-                else{
-                    //TODO: return ERROR
-                    connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(7)); //when to use error 6:User not logged in - Any opcode received before Login completes?
-                }
+                logOperation(message);            
             }
-
             else{          
-                //TODO insert error of user that wasn't logged in, and made non-LOGRQ request (he is in inactive_connections)
+                //TODO eliya insert error of user that wasn't logged in, and made non-LOGRQ request (he is in inactive_connections)
             }
         }
 
         else{ //user is logged in
+            //TODO should also add check if handling_data? can packets other than data be sent by client in that time?
             if (opcode == 1)
                 readRequest(message);
 
-            else if (opcode == 2)
+            else if (opcode == 2){
                 writeRequest(message);
+            }
 
             else if (opcode == 3)
-                dataPacketOp(message);
+                dataPacketIn(message);
 
             // else if (opcode == 4)
                 // ackOperation(message);
@@ -90,7 +88,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles RRQ message sent from client to server
     private void readRequest(byte[] message){ //assumes there is no zero byte in the filename
         //TODO
-        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 2);
+        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1); //was message.length - 2 , eilon changed to -1, this is exclusive
 
         // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
@@ -103,6 +101,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         //TODO
         if(isExist){
             //send DATA pkg with the claimed file
+            this.dataFileOut(filename);
         }
 
         else{
@@ -114,7 +113,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private void writeRequest(byte[] message){
         //TODO
 
-        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 2);
+        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1);
 
         // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
@@ -124,19 +123,13 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             isExist = Files.exists(filePath);
         } catch (SecurityException e) {} //needed?? maybe not? - neya
 
-        //TODO
         if(isExist){
-            //get DATA pkg with the claimed file
+            connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(5)); //the file already exists in the server
         }
-
         else{
-            //send error pkg
-        }  
-    }
-
-    //handles DATA message sent from server to client
-    private void dataPacketOp(byte[] message){
-        //TODO
+            this.dataInPrep(message); //prepares for data packets to be sent by the client
+            connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+        }
     }
 
     //handles ACK message sent from server to client
@@ -173,7 +166,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     }
 
     //handles LOGRQ message sent from client to server
-    private boolean logOperation(byte[] message){
+    private void logOperation(byte[] message){
         ConnectionHandler<byte[]> BCH = connectionsHolder.connectionsObj.inactive_connections.get(connectionId);
         String name = "";
         try{
@@ -181,12 +174,18 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         } catch(UnsupportedEncodingException e){}
         System.out.println("name entered was: "+name);
         int checkUserName = name.hashCode(); //assuming valid input from user
-        if(connectionsHolder.connectionsObj.active_connections.containsKey(checkUserName)) return false; //there's already a client with that name. TODO also need to terminate client? probably not
+
+        if(connectionsHolder.connectionsObj.active_connections.containsKey(checkUserName)){
+            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(7)); //TODO correct error code?
+        }
+
         else{ //was inactive, has legal unique name, now should be activated
             connectionsHolder.connectionsObj.inactive_connections.remove(this.connectionId);
             this.connectionId = checkUserName;
             connectionsHolder.connectionsObj.connect(this.connectionId, BCH); //will insert to active connections
-            return true;
+            this.logged_in = true;
+            connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+            System.out.println("LOGRQ was completed successfully!");
         }
     }
 
@@ -205,6 +204,126 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         //TODO
     }
 
+    //handles DATA message sent from client to server
+    private void dataPacketIn(byte[] message){
+        //TODO
+        short packetSize = (short)(((short) (message[2] & 0xFF)) << 8 | (short) (message[3]) & 0xFF );
+        short packetBlockNum = (short)(((short) (message[4] & 0xFF)) << 8 | (short) (message[5]) & 0xFF );
+        System.out.println("packet block number: " + packetBlockNum + " packet size is: " + packetSize);
+        this.incomingData.add(Arrays.copyOfRange(message, 6, message.length));
+
+        if(packetSize<518){ //+6 because always includes 6 prefix bytes. 518 is a full packet
+            this.saveFile(this.incomingFileName);
+        }
+        connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(packetBlockNum));
+        //TODO maybe wait until client sends another packet?
+    }
+
+    //makes preliminary steps for handling dataIn
+    private void dataInPrep(byte[] message){
+        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1);
+        String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
+        this.incomingFileName = filename;
+        this.handling_data = true; //need this?
+        //TODO eliya create a file by that name in the server
+        this.incomingData.clear();
+    }
+
+    //save file after finished dataIn
+    private void saveFile(String fileName){
+        int totalLength = 0;
+        for(byte[] b: this.incomingData){
+            totalLength += b.length;
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        for(byte[] d: this.incomingData){
+            buffer.put(d);
+        }
+        byte[] file = buffer.array(); //TODO eliya make sure this won't be a too big length. maybe adding straight to the file for every byte is safer
+
+        //TODO eliya saves the data "file" to the file in the name this.fileName, that was created before
+
+        //TODO need to do BCAST here to notify about file added to the server, to all active clients
+
+            //keep last
+        this.handling_data = false;
+        this.incomingData.clear();
+        this.incomingFileName = null; 
+
+    }
+
+    //handles sending packets to client following an RRQ by the client
+    private void dataFileOut(String fileName){
+        //TODO
+        Path filePath = Paths.get("Files", fileName); //constructs the path to the file
+        File fileToSend = new File(filePath.toString());
+        byte[] slicedData;
+        int blockNumCounter = 0;
+
+        try(FileInputStream fis = new FileInputStream(fileToSend)){
+            while(fis.available()>0){
+                if(fis.available()>=512){
+                    slicedData = new byte[512];
+                }
+                else{
+                    slicedData = new byte[fis.available()];
+                }
+                fis.read(slicedData);
+                blockNumCounter++;
+                byte[] readyPacket = createDataPacket(slicedData, blockNumCounter);
+                connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
+                //TODO need to make him wait from here, until the client sent suitable ack
+            }
+
+        }catch(IOException e){}
+    }
+
+    private byte[] createDataPacket(byte[] rawData, int blockNumber){
+        short a = 3;
+        byte[] opdcodeBytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
+        byte[] packetSizeBytes = new byte []{( byte ) ( rawData.length >> 8) , ( byte ) ( rawData.length & 0xff ) };
+        byte[] blockNumBytes = new byte []{( byte ) ( blockNumber >> 8) , ( byte ) ( blockNumber & 0xff ) };
+
+
+        int totalLength = 6 + rawData.length;
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        buffer.put(opdcodeBytes);
+        buffer.put(packetSizeBytes);
+        buffer.put(blockNumBytes);
+        buffer.put(rawData);
+
+        byte[] dataPacket = buffer.array(); 
+        return dataPacket;
+    }
+
+
+    //handles DATA message sent from server to client
+    private void dataDirOut(){
+        //TODO eliya- implement similiarly to dataFileOut
+        ArrayList<String> fileNames = new ArrayList<>();
+        File directory = new File("C:\\Users\\User\\projects\\Skeleton\\server\\Files"); //eliya how to access correctly?
+        File[] files = directory.listFiles();
+        for(File f: files){
+            fileNames.add(f.getName());
+        }
+        byte[] zero = new byte[]{0};
+        int blocksCounter = 0;
+        while(!fileNames.isEmpty()){
+            ByteBuffer buffer = ByteBuffer.allocate(512);
+            while(fileNames.get(0).getBytes().length<buffer.remaining() && !fileNames.isEmpty()){
+                buffer.put(fileNames.get(0).getBytes());
+                buffer.put(zero);
+                fileNames.remove(0);
+            }
+            blocksCounter++;
+            //eliya- need to slice the buffer to call buffer.array() on it. there might be unfilled items at the end of the buffer.
+            byte[] fullBuf = buffer.array();
+            // byte[] slicedbuff
+            // byte[] readyPacket = createDataPacket(slicedbuff, blocksCounter);
+            // connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
+            //TODO need to make him wait from here, until the client sent suitable ack
+        }
+    }
 
 
     @Override
@@ -213,6 +332,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         return shouldTerminate;
     } 
 
-
-    
+    // public static void main(String[] args) { //testing, delete later
+    //     TftpProtocol p = new TftpProtocol();
+    //     p.dataDirOut();
+    // }
 }
