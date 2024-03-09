@@ -3,6 +3,7 @@ package bgu.spl.net.impl.tftp;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -21,9 +22,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private int connectionId;
     private Connections<byte[]> connections;
     private boolean logged_in = false;
-    private boolean handling_data = false;
     private String incomingFileName = null;
     private ArrayList<byte[]> incomingData = new ArrayList<>();
+    private FileOutputStream outputStream;
     //private int currentBlockNumCounter = 0; - used for synchronized ACK & RRQ - meantime we don't need it - neya
     private Object lock = new Object();
 
@@ -232,8 +233,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         short packetSize = (short) (((short) message[2]) << 8 | (short) (message[3]) & 0x00ff);
         short packetBlockNum = (short) (((short) message[4]) << 8 | (short) (message[5]) & 0x00ff);
         System.out.println("packet block number: " + packetBlockNum + " packet size is: " + packetSize);
-        this.incomingData.add(Arrays.copyOfRange(message, 6, message.length));
-
+        // this.incomingData.add(Arrays.copyOfRange(message, 6, message.length));
+        try{
+            this.outputStream.write(Arrays.copyOfRange(message, 6, message.length));
+        } catch(IOException e){}
         if(packetSize<518){ //+6 because always includes 6 prefix bytes. 518 is a full packet
             this.saveFile(this.incomingFileName);
         }
@@ -246,7 +249,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1);
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
         this.incomingFileName = filename;
-        this.handling_data = true; //need this?
 
         //TODO eliya create a file by that name in the server - done
         Path path = Paths.get("server", "Files", filename); //constructs the path to the file
@@ -254,7 +256,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
         try {
             // Create the file
-            Files.createFile(filePath);
+            File newfile = Files.createFile(filePath).toFile();
+            this.outputStream = new FileOutputStream(newfile);
             System.out.println("File created successfully at " + filePath); //to delete
         } catch (IOException e) {
             connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(2));
@@ -265,25 +268,26 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
     //save file after finished dataIn
     private void saveFile(String fileName){
-        int totalLength = 0;
-        for(byte[] b: this.incomingData){
-            totalLength += b.length;
-        }
-        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
-        for(byte[] d: this.incomingData){
-            buffer.put(d);
-        }
-        byte[] file = buffer.array(); //TODO eliya make sure this won't be a too big length. maybe adding straight to the file for every byte is safer
+        // int totalLength = 0;
+        // for(byte[] b: this.incomingData){
+        //     totalLength += b.length;
+        // }
+        // ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        // for(byte[] d: this.incomingData){
+        //     buffer.put(d);
+        // }
+        // byte[] file = buffer.array(); //TODO eliya make sure this won't be a too big length. maybe adding straight to the file for every byte is safer
 
         //TODO eliya saves the data "file" to the file in the name this.fileName, that was created before
 
         //TODO need to do BCAST here to notify about file added to the server, to all active clients
 
-            //keep last
-        this.handling_data = false;
+        //keep last
         this.incomingData.clear();
+        try{
+            this.outputStream.flush();
+        } catch(IOException e){}
         this.incomingFileName = null; 
-
     }
 
     //handles sending packets to client following an RRQ by the client
