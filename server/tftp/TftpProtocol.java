@@ -234,7 +234,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                 System.out.println("File does not exist");
             }
         } catch (IOException e) {
-            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(2));
+            connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(2));
         }
     }
 
