@@ -24,7 +24,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     private boolean handling_data = false;
     private String incomingFileName = null;
     private ArrayList<byte[]> incomingData = new ArrayList<>();
-
+    //private int currentBlockNumCounter = 0; - used for synchronized ACK & RRQ - meantime we don't need it - neya
+    private Object lock = new Object();
 
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
@@ -38,13 +39,14 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     public void process(byte[] message) { 
         // TODO implement this
         byte opcode = message[1];
-
+        System.out.println("got msg with opcode: "+opcode);
         if(!logged_in){
             if(opcode == 7){
                 logOperation(message);            
             }
             else{          
-                //TODO eliya insert error of user that wasn't logged in, and made non-LOGRQ request (he is in inactive_connections)
+                //TODO eliya insert error of user that wasn't logged in, and made non-LOGRQ request (he is in inactive_connections) - done
+                connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(6));
             }
         }
 
@@ -57,11 +59,12 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                 writeRequest(message);
             }
 
-            else if (opcode == 3)
+            else if (opcode == 3){
+                System.out.println("got data");
                 dataPacketIn(message);
-
-            // else if (opcode == 4)
-                // ackOperation(message);
+            }
+            else if (opcode == 4)
+                acceptAckOperation(message);
 
             // else if (opcode == 5)
             //     //errorOperation(message);
@@ -92,20 +95,24 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
         // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
-        Path filePath = Paths.get("Files", filename); //constructs the path to the file
+        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path filePath = path.toAbsolutePath();
+        System.out.println(filePath); //to delete
         boolean isExist = false;
         try {
             isExist = Files.exists(filePath);
-        } catch (SecurityException e) {} //needed?? maybe not? - neya
+        } catch (SecurityException e) { connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(2)); } //needed?? maybe not? - neya
 
         //TODO
         if(isExist){
+            System.out.println("FILE EXIST"); //todelete
             //send DATA pkg with the claimed file
             this.dataFileOut(filename);
         }
 
         else{
-            //send error pkg
+            //send error pkg - done
+            connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(1));
         }
     }
 
@@ -117,24 +124,39 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
         // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
-        Path filePath = Paths.get("Files", filename); //constructs the path to the file
+        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path filePath = path.toAbsolutePath();
+        //System.out.println(filePath); //to delete
+
         boolean isExist = false;
         try {
             isExist = Files.exists(filePath);
-        } catch (SecurityException e) {} //needed?? maybe not? - neya
+        } catch (SecurityException e) {connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(2));} //needed?? maybe not? - neya
 
         if(isExist){
             connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(5)); //the file already exists in the server
         }
         else{
             this.dataInPrep(message); //prepares for data packets to be sent by the client
-            connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+            connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0)); 
         }
     }
 
     //handles ACK message sent from server to client
+    private void acceptAckOperation(byte[] message){ //needed??
+        short blockNumber = (short) (((short) message[2]) << 8 | (short) (message[3]) & 0x00ff);
+        System.out.println(blockNumber + "client sent");
+        // if (blockNumber == currentBlockNumCounter){ 
+        //     synchronized (lock) {
+        //         // notify to send next packet
+        //         this.notify();
+        //     }
+        // }
+    }
+
+    //sends ACK 0 when needed
     private byte[] ackOperation(int blockNum){
-        short a = 4;
+        short a = 4;    
         byte[] a_bytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
         byte[] b_bytes = new byte []{( byte ) ( blockNum >> 8) , ( byte ) ( blockNum & 0xff ) };
         byte[] ack = new byte[]{a_bytes[0], a_bytes[1], b_bytes[0], b_bytes[1]};
@@ -225,7 +247,19 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
         this.incomingFileName = filename;
         this.handling_data = true; //need this?
-        //TODO eliya create a file by that name in the server
+
+        //TODO eliya create a file by that name in the server - done
+        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path filePath = path.toAbsolutePath();
+
+        try {
+            // Create the file
+            Files.createFile(filePath);
+            System.out.println("File created successfully at " + filePath); //to delete
+        } catch (IOException e) {
+            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(2));
+        }
+
         this.incomingData.clear();
     }
 
@@ -255,7 +289,10 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles sending packets to client following an RRQ by the client
     private void dataFileOut(String fileName){
         //TODO
-        Path filePath = Paths.get("Files", fileName); //constructs the path to the file
+        Path path = Paths.get("server", "Files", fileName); //constructs the path to the file
+        Path filePath = path.toAbsolutePath();
+        System.out.println(filePath); //to delete
+
         File fileToSend = new File(filePath.toString());
         byte[] slicedData;
         int blockNumCounter = 0;
@@ -270,12 +307,21 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
                 }
                 fis.read(slicedData);
                 blockNumCounter++;
+                //this.currentBlockNumCounter = blockNumCounter;
                 byte[] readyPacket = createDataPacket(slicedData, blockNumCounter);
                 connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
                 //TODO need to make him wait from here, until the client sent suitable ack
+                // synchronized (lock) { 
+                //     try {
+                //         // wait for acknowledgement
+                //         lock.wait();
+                //     } catch (InterruptedException e) {
+                //         e.printStackTrace();
+                //     }
+                // }
             }
 
-        }catch(IOException e){}
+        } catch(IOException e){}
     }
 
     private byte[] createDataPacket(byte[] rawData, int blockNumber){
