@@ -229,8 +229,8 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles DATA message sent from client to server
     private void dataPacketIn(byte[] message){
         //TODO
-        short packetSize = (short)(((short) (message[2] & 0xFF)) << 8 | (short) (message[3]) & 0xFF );
-        short packetBlockNum = (short)(((short) (message[4] & 0xFF)) << 8 | (short) (message[5]) & 0xFF );
+        short packetSize = (short) (((short) message[2]) << 8 | (short) (message[3]) & 0x00ff);
+        short packetBlockNum = (short) (((short) message[4]) << 8 | (short) (message[5]) & 0x00ff);
         System.out.println("packet block number: " + packetBlockNum + " packet size is: " + packetSize);
         this.incomingData.add(Arrays.copyOfRange(message, 6, message.length));
 
