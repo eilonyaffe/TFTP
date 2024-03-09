@@ -215,6 +215,27 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles DELRQ message sent from client to server
     private void deleteFile(byte[] message){
         //TODO
+        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1); 
+
+        // Convert byte array to string using UTF-8
+        String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
+        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path filePath = path.toAbsolutePath();
+        System.out.println(filePath); //to delete
+
+        try {
+            boolean isDeleted = Files.deleteIfExists(filePath);
+
+            if(isDeleted) {
+                System.out.println("File deleted successfully");
+                connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+                //needed to send BCAST to all users
+            } else {
+                System.out.println("File does not exist");
+            }
+        } catch (IOException e) {
+            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(2));
+        }
     }
 
     //handles ERROR message sent from server to all logged clients
