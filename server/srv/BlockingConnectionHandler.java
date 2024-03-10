@@ -31,14 +31,12 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
             in = new BufferedInputStream(sock.getInputStream());
             out = new BufferedOutputStream(sock.getOutputStream());
 
-            //new from here
             int demoConnectionId = connectionsHolder.getUniqueID();
             protocol.start(demoConnectionId ,(Connections<T>) connectionsHolder.connectionsObj);
-            System.out.println("started protocol, demo id is: "+demoConnectionId);
+            // System.out.println("started protocol, demo id is: "+demoConnectionId);
 
-            connectionsHolder.connectionsObj.basicConnect(demoConnectionId, (ConnectionHandler) this); //TODO check if works. need to change from 1967!! just placeholder
-            System.out.println("inserted to connections, not activated yet");
-            //until here
+            connectionsHolder.connectionsObj.basicConnect(demoConnectionId, (ConnectionHandler) this);
+            // System.out.println("inserted to connections, not activated yet");
 
             while (!protocol.shouldTerminate() && connected && (read = in.read()) >= 0) {
                 T nextMessage = encdec.decodeNextByte((byte) read);
@@ -63,6 +61,7 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
         //IMPLEMENT IF NEEDED
         try{
             if(msg != null){
+                out.flush();
                 out.write(encdec.encode(msg));
                 out.flush();
             }
