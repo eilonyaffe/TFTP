@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.nio.file.*;
 import bgu.spl.net.api.BidiMessagingProtocol;
 import bgu.spl.net.srv.ConnectionHandler;
@@ -20,33 +21,35 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
     private boolean shouldTerminate; //eliya - is it necessary to make it volatile
     private int connectionId;
-    private Connections<byte[]> connections;
     private boolean logged_in = false;
     private String incomingFileName = null;
-    private ArrayList<byte[]> incomingData = new ArrayList<>();
-    private FileOutputStream outputStream;
-    //private int currentBlockNumCounter = 0; - used for synchronized ACK & RRQ - meantime we don't need it - neya
-    private Object lock = new Object();
+    private ByteArrayOutputStream  bufferForFileFromClient = new ByteArrayOutputStream ();
+    private boolean sending_data = false;
+    private boolean nextends = false;
+    private int blockNumCounter;
+    private FileInputStream fileoutstream;
 
     @Override
     public void start(int connectionId, Connections<byte[]> connections) {
         // TODO implement this
         this.shouldTerminate = false;
         this.connectionId = connectionId;
-        this.connections = connections;
     }
 
     @Override
     public void process(byte[] message) { 
         // TODO implement this
         byte opcode = message[1];
-        System.out.println("got msg with opcode: "+opcode);
+        // System.out.println("got msg with opcode: "+opcode);
         if(!logged_in){
             if(opcode == 7){
                 logOperation(message);            
             }
+
+            else if(opcode == 10){
+                disconnectOp(false);
+            }
             else{          
-                //TODO eliya insert error of user that wasn't logged in, and made non-LOGRQ request (he is in inactive_connections) - done
                 connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(6));
             }
         }
@@ -61,7 +64,6 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             }
 
             else if (opcode == 3){
-                System.out.println("got data");
                 dataPacketIn(message);
             }
             else if (opcode == 4)
@@ -71,7 +73,7 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             //     //errorOperation(message);
 
             else if (opcode == 6)
-                listingRequest(message);
+                dataDirOut();
 
             else if (opcode == 7){ //logged in, and wanted to do another LOGRQ. will send error
                 connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(7)); //is error 7 correct for this case?
@@ -80,25 +82,24 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
             else if (opcode == 8)
                 deleteFile(message);
 
-            else if (opcode == 9)
-                bcastOperation(message);
+            // else if (opcode == 9)
+            //     bcastOperation(message);
 
             else if (opcode == 10)
-                disconnectOp(message);
+                disconnectOp(true);
 
         }//end of else
     }
 
     //handles RRQ message sent from client to server
-    private void readRequest(byte[] message){ //assumes there is no zero byte in the filename
+    private void readRequest(byte[] message){ 
         //TODO
-        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1); //was message.length - 2 , eilon changed to -1, this is exclusive
+        byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1); 
 
         // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
-        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path path = Paths.get("Files", filename); //constructs the path to the file
         Path filePath = path.toAbsolutePath();
-        System.out.println(filePath); //to delete
         boolean isExist = false;
         try {
             isExist = Files.exists(filePath);
@@ -106,13 +107,9 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
         //TODO
         if(isExist){
-            System.out.println("FILE EXIST"); //todelete
-            //send DATA pkg with the claimed file
             this.dataFileOut(filename);
         }
-
         else{
-            //send error pkg - done
             connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(1));
         }
     }
@@ -120,20 +117,15 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles WRQ message sent from client to server
     private void writeRequest(byte[] message){
         //TODO
-
         byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1);
-
-        // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
-        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path path = Paths.get("Files", filename); //constructs the path to the file
         Path filePath = path.toAbsolutePath();
-        //System.out.println(filePath); //to delete
-
         boolean isExist = false;
         try {
             isExist = Files.exists(filePath);
         } catch (SecurityException e) {connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(2));} //needed?? maybe not? - neya
-
+        
         if(isExist){
             connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(5)); //the file already exists in the server
         }
@@ -146,13 +138,14 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
     //handles ACK message sent from server to client
     private void acceptAckOperation(byte[] message){ //needed??
         short blockNumber = (short) (((short) message[2]) << 8 | (short) (message[3]) & 0x00ff);
-        System.out.println(blockNumber + "client sent");
-        // if (blockNumber == currentBlockNumCounter){ 
-        //     synchronized (lock) {
-        //         // notify to send next packet
-        //         this.notify();
-        //     }
-        // }
+        System.out.println("received ack: "+blockNumber);
+        if(this.nextends){
+            this.sending_data = false;
+            this.nextends = false;
+        }
+        else{
+            this.dataFileOut(null);
+        }
     }
 
     //sends ACK 0 when needed
@@ -183,20 +176,16 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         return buffer.array(); 
     }
 
-    //handles DIRQ message sent from client to server
-    private void listingRequest(byte[] message){
-        //TODO
-    }
 
     //handles LOGRQ message sent from client to server
     private void logOperation(byte[] message){
         ConnectionHandler<byte[]> BCH = connectionsHolder.connectionsObj.inactive_connections.get(connectionId);
         String name = "";
         try{
-            name = new String(message, "UTF-8"); //should check if legal?
+            name = new String(message, "UTF-8"); 
         } catch(UnsupportedEncodingException e){}
         System.out.println("name entered was: "+name);
-        int checkUserName = name.hashCode(); //assuming valid input from user
+        int checkUserName = name.hashCode(); 
 
         if(connectionsHolder.connectionsObj.active_connections.containsKey(checkUserName)){
             connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(7)); //TODO correct error code?
@@ -217,35 +206,57 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         //TODO
         byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1); 
 
-        // Convert byte array to string using UTF-8
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
-        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
+        Path path = Paths.get("Files", filename); //constructs the path to the file
         Path filePath = path.toAbsolutePath();
-        System.out.println(filePath); //to delete
 
         try {
             boolean isDeleted = Files.deleteIfExists(filePath);
 
             if(isDeleted) {
-                System.out.println("File deleted successfully");
                 connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
                 //needed to send BCAST to all users
+                this.bcastOperation(filename, false); //new
             } else {
-                System.out.println("File does not exist");
+                connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(1));
             }
         } catch (IOException e) {
-            connectionsHolder.connectionsObj.send(this.connectionId, this.errorOperation(2));
+            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(2));
         }
     }
 
     //handles ERROR message sent from server to all logged clients
-    private void bcastOperation(byte[] message){
+    private void bcastOperation(String filename, boolean changeType){
         //TODO
+        byte indicator = 0;
+        if(changeType)
+            indicator = 1;
+        byte[] prefix = new byte[]{0,9,indicator};
+        byte[] byteArray = filename.getBytes();
+        byte zer = 0;
+        int totalLength = 4 + byteArray.length;
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        buffer.put(prefix);
+        buffer.put(byteArray);
+        buffer.put(zer);
+        byte[] bcastPacket = buffer.array(); 
+        for(Integer a: connectionsHolder.connectionsObj.active_connections.keySet()){
+            connectionsHolder.connectionsObj.send(a, bcastPacket);
+        }
     }
 
     //handles DISC message sent from client to server  //maybe no need of this method
-    private void disconnectOp(byte[] message){
+    private void disconnectOp(boolean connected){
         //TODO
+        if(connected){
+            connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(0));
+            connectionsHolder.connectionsObj.disconnect(this.connectionId);
+        }
+        else{
+            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(6));
+            connectionsHolder.connectionsObj.disconnectInactive(this.connectionId);
+        }
+
     }
 
     //handles DATA message sent from client to server
@@ -254,11 +265,11 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         short packetSize = (short) (((short) message[2]) << 8 | (short) (message[3]) & 0x00ff);
         short packetBlockNum = (short) (((short) message[4]) << 8 | (short) (message[5]) & 0x00ff);
         System.out.println("packet block number: " + packetBlockNum + " packet size is: " + packetSize);
-        // this.incomingData.add(Arrays.copyOfRange(message, 6, message.length));
         try{
-            this.outputStream.write(Arrays.copyOfRange(message, 6, message.length));
+            this.bufferForFileFromClient.write(Arrays.copyOfRange(message, 6, message.length));
         } catch(IOException e){}
-        if(packetSize<518){ //+6 because always includes 6 prefix bytes. 518 is a full packet
+        if(packetSize<512){ //+6 because always includes 6 prefix bytes. 518 is a full packet //changed, was 518
+            // System.out.println("now filename is: "+this.incomingFileName);
             this.saveFile(this.incomingFileName);
         }
         connectionsHolder.connectionsObj.send(this.connectionId, this.ackOperation(packetBlockNum));
@@ -270,83 +281,58 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         byte[] filenameInBytes = Arrays.copyOfRange(message,2, message.length - 1);
         String filename = new String(filenameInBytes, StandardCharsets.UTF_8);
         this.incomingFileName = filename;
-
-        //TODO eliya create a file by that name in the server - done
-        Path path = Paths.get("server", "Files", filename); //constructs the path to the file
-        Path filePath = path.toAbsolutePath();
-
-        try {
-            // Create the file
-            File newfile = Files.createFile(filePath).toFile();
-            this.outputStream = new FileOutputStream(newfile);
-            System.out.println("File created successfully at " + filePath); //to delete
-        } catch (IOException e) {
-            connectionsHolder.connectionsObj.sendInactive(this.connectionId, this.errorOperation(2));
-        }
-
-        this.incomingData.clear();
+        try{
+            this.bufferForFileFromClient.flush();
+        } catch(IOException e){}
     }
 
-    //save file after finished dataIn
+    //saves file after finished dataIn
     private void saveFile(String fileName){
-        // int totalLength = 0;
-        // for(byte[] b: this.incomingData){
-        //     totalLength += b.length;
-        // }
-        // ByteBuffer buffer = ByteBuffer.allocate(totalLength);
-        // for(byte[] d: this.incomingData){
-        //     buffer.put(d);
-        // }
-        // byte[] file = buffer.array(); //TODO eliya make sure this won't be a too big length. maybe adding straight to the file for every byte is safer
-
-        //TODO eliya saves the data "file" to the file in the name this.fileName, that was created before
-
-        //TODO need to do BCAST here to notify about file added to the server, to all active clients
-
-        //keep last
-        this.incomingData.clear();
         try{
-            this.outputStream.flush();
+            Path p = Paths.get("Files",this.incomingFileName);
+            System.out.println("filename is: "+ this.incomingFileName);
+            Path filePath = p.toAbsolutePath();
+            File newfile = Files.createFile(filePath).toFile();
+            FileOutputStream fileOutputStream = new FileOutputStream(newfile);
+            this.bufferForFileFromClient.writeTo(fileOutputStream); //uploads accumulated bytes to the new file
         } catch(IOException e){}
+        this.bcastOperation(this.incomingFileName, true); 
         this.incomingFileName = null; 
     }
 
     //handles sending packets to client following an RRQ by the client
     private void dataFileOut(String fileName){
         //TODO
-        Path path = Paths.get("server", "Files", fileName); //constructs the path to the file
-        Path filePath = path.toAbsolutePath();
-        System.out.println(filePath); //to delete
-
-        File fileToSend = new File(filePath.toString());
-        byte[] slicedData;
-        int blockNumCounter = 0;
-
-        try(FileInputStream fis = new FileInputStream(fileToSend)){
-            while(fis.available()>0){
-                if(fis.available()>=512){
-                    slicedData = new byte[512];
-                }
-                else{
-                    slicedData = new byte[fis.available()];
-                }
-                fis.read(slicedData);
-                blockNumCounter++;
-                //this.currentBlockNumCounter = blockNumCounter;
-                byte[] readyPacket = createDataPacket(slicedData, blockNumCounter);
-                connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
-                //TODO need to make him wait from here, until the client sent suitable ack
-                // synchronized (lock) { 
-                //     try {
-                //         // wait for acknowledgement
-                //         lock.wait();
-                //     } catch (InterruptedException e) {
-                //         e.printStackTrace();
-                //     }
-                // }
+        System.out.println("sends data");
+        try{
+            if(!this.sending_data){
+                this.sending_data = true;
+                this.blockNumCounter = 0;
+                Path path = Paths.get("Files", fileName); //constructs the path to the file
+                Path filePath = path.toAbsolutePath();
+                File fileToSend = new File(filePath.toString());
+                this.fileoutstream = new FileInputStream(fileToSend);
             }
-
+    
+            byte[] slicedData;
+    
+            if(this.sending_data){
+                if(this.fileoutstream.available()>=0){
+                    if(fileoutstream.available()>=512){
+                        slicedData = new byte[512];
+                    }
+                    else{
+                        slicedData = new byte[fileoutstream.available()];
+                        this.nextends = true;
+                    }
+                    fileoutstream.read(slicedData);
+                    blockNumCounter++;
+                    byte[] readyPacket = createDataPacket(slicedData, blockNumCounter);
+                    connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
+                }
+            }
         } catch(IOException e){}
+       
     }
 
     private byte[] createDataPacket(byte[] rawData, int blockNumber){
@@ -369,33 +355,41 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
 
 
     //handles DATA message sent from server to client
-    private void dataDirOut(){
-        //TODO eliya- implement similiarly to dataFileOut
-        ArrayList<String> fileNames = new ArrayList<>();
-        File directory = new File("C:\\Users\\User\\projects\\Skeleton\\server\\Files"); //eliya how to access correctly?
-        File[] files = directory.listFiles();
-        for(File f: files){
-            fileNames.add(f.getName());
-        }
-        byte[] zero = new byte[]{0};
-        int blocksCounter = 0;
-        while(!fileNames.isEmpty()){
-            ByteBuffer buffer = ByteBuffer.allocate(512);
-            while(fileNames.get(0).getBytes().length<buffer.remaining() && !fileNames.isEmpty()){
-                buffer.put(fileNames.get(0).getBytes());
-                buffer.put(zero);
-                fileNames.remove(0);
+    private void dataDirOut(){ 
+        //TODO
+        String filename = "tempFileNames";
+        Path pathNewFile = Paths.get("Files", filename);
+        Path filePath = pathNewFile.toAbsolutePath();
+        FileOutputStream dirstream;
+        byte zer = 0;
+        try {
+            // Create the file
+            File newfile = Files.createFile(filePath).toFile();
+            dirstream = new FileOutputStream(newfile);
+            List<Path> filteredPaths = listFilesExcludingByName("Files", "tempFileNames");
+
+            for (Path path : filteredPaths) {
+                dirstream.write(path.toFile().getName().getBytes());
+                dirstream.write(zer);
             }
-            blocksCounter++;
-            //eliya- need to slice the buffer to call buffer.array() on it. there might be unfilled items at the end of the buffer.
-            byte[] fullBuf = buffer.array();
-            // byte[] slicedbuff
-            // byte[] readyPacket = createDataPacket(slicedbuff, blocksCounter);
-            // connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
-            //TODO need to make him wait from here, until the client sent suitable ack
-        }
+            this.dataFileOut("tempFileNames");
+            Files.deleteIfExists(filePath);
+        } catch (IOException e) {}
     }
 
+
+        public static List<Path> listFilesExcludingByName(String directoryPath, String excludedFileName) throws IOException {
+        Path directory = Paths.get(directoryPath);
+        List<Path> filteredPaths = new ArrayList<>();
+
+        if (Files.exists(directory) && Files.isDirectory(directory)) {
+            filteredPaths = Files.walk(directory)
+                .filter(Files::isRegularFile) // Filter only regular files
+                .filter(path -> !path.getFileName().toString().equals(excludedFileName)) // Exclude files by name
+                .collect(Collectors.toList()); // Collect filtered paths into a list
+        }
+        return filteredPaths;
+    }
 
     @Override
     public boolean shouldTerminate() {
@@ -403,8 +397,4 @@ public class TftpProtocol implements BidiMessagingProtocol<byte[]>  {
         return shouldTerminate;
     } 
 
-    // public static void main(String[] args) { //testing, delete later
-    //     TftpProtocol p = new TftpProtocol();
-    //     p.dataDirOut();
-    // }
 }
