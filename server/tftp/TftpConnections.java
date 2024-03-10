@@ -42,6 +42,11 @@ public class TftpConnections<T> implements Connections<T> {
         this.active_connections.remove(connectionId);
     }
 
+    public void disconnectInactive(int connectionId){
+        //TODO implement
+        this.inactive_connections.remove(connectionId);
+    }
+
     public int getUniqueInactiveID(){
         //TODO implement
         this.inactive_counter++;
