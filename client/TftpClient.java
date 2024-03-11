@@ -8,6 +8,7 @@
 
 package bgu.spl.net.impl.tftp;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -17,6 +18,8 @@ import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.Socket;
 import java.net.UnknownHostException;
+
+import bgu.spl.net.api.MessageEncoderDecoder;
 
 
 
@@ -63,7 +66,7 @@ import java.net.UnknownHostException;
 //     }
 // }
 
-
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////workssssssssssssssss
 // package bgu.spl.net.impl.tftp;
 public class TftpClient {
     //TODO: implement the main logic of the client, when using a thread per client the main logic goes here
@@ -71,12 +74,27 @@ public class TftpClient {
         try {
             Socket sock = new Socket("127.0.0.1", 7777);
             System.out.println("Connected to the server!");
-            TftpClientKeyboardThread keyboardThread = new TftpClientKeyboardThread(sock, new TftpEncoderDecoder());
+
+            MessageEncoderDecoder<byte[]> encdec = new TftpEncoderDecoder();
+
+            TftpClientKeyboardThread keyboardThread = new TftpClientKeyboardThread(sock, encdec);
             Thread thread = new Thread(keyboardThread);
             thread.start();
             
         //TODO listening thread 
-            
+        // BufferedInputStream in = new BufferedInputStream(sock.getInputStream());
+        
+        // int read;
+
+        // while ((read = in.read()) >= 0) {
+        //     byte[] nextMessage = encdec.decodeNextByte((byte) read);
+        //     if (nextMessage != null) {
+        //         System.out.println(nextMessage.toString());
+        //     }
+        // }
+        TftpClientListeningThread listeningThread = new TftpClientListeningThread(sock, encdec);
+        Thread thread2 = new Thread(listeningThread);
+        thread2.start();
 
         } catch (UnknownHostException e) {
             // TODO Auto-generated catch block
@@ -110,7 +128,6 @@ public class TftpClient {
     
 
 //     public static void main(String[] args) {
-//         System.out.println("implement me!");
 
 //         if (args.length == 0) {
 //             args = new String[]{"localhost", "hello"};
@@ -121,11 +138,11 @@ public class TftpClient {
 //             System.exit(1);
 //         }
 
-//         //BufferedReader and BufferedWriter automatically using UTF-8 encoding
-//         try (Socket sock = new Socket("127.0.0.1", 7777); //change port from args too
-//             BufferedReader in = new BufferedReader(new InputStreamReader(sock.getInputStream()));
-//             BufferedOutputStream out = new BufferedOutputStream(sock.getOutputStream())) {
-
+        
+//         try (Socket sock = new Socket("127.0.0.1", 7777)){
+//             //BufferedReader in = new BufferedReader(new InputStreamReader(sock.getInputStream()));
+//             //BufferedOutputStream out = new BufferedOutputStream(sock.getOutputStream())) 
+            
 //             if (!sock.isClosed())
 //                 System.out.println("connected to server" + args[0]);
 //             else{
@@ -133,7 +150,7 @@ public class TftpClient {
 //             }
             
 
-//             TftpClientKeyboardThread keyboardThread = new TftpClientKeyboardThread(sock, out, new TftpEncoderDecoder());
+//             TftpClientKeyboardThread keyboardThread = new TftpClientKeyboardThread(sock, new TftpEncoderDecoder());
 //             Thread thread = new Thread(keyboardThread);
 //             thread.start();
 

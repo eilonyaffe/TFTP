@@ -19,11 +19,13 @@ public class TftpClientKeyboardThread extends Thread {
     //BufferedOutputStream outa;
     private final Socket socket;
     private final MessageEncoderDecoder<byte[]> encdec;
-    //ConnectionHandler bch = new BlockingConnectionHandler<byte[]>(null, null, null); //eilon- change after
+    protected volatile static int dirOrRRQinProcess; //indicates if there is a process of DIRQ (equals 0) or RRQ (equals 1) or none (-1)
+    protected volatile static Path currentPathRRQ;
+    protected volatile static String currentRRQfileName;
 
     public TftpClientKeyboardThread(Socket sock, MessageEncoderDecoder<byte[]> encdec) { //gets the socket of the client
-        this.socket = sock;
-        this.encdec = encdec;
+        this.socket = sock;  
+        this.encdec = encdec; 
     }
 
     @Override
@@ -43,13 +45,16 @@ public class TftpClientKeyboardThread extends Thread {
 
                 if(command.equals("LOGRQ")){
                    suitedPacket = this.logrqPacketCreator(words[1]);
-                   this.socket.getOutputStream().write(suitedPacket);
+                   this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                    this.socket.getOutputStream().flush();
                 }
+
                 else if(command.equals("DELRQ")){
                     suitedPacket = this.deleqPacketCreator(words[1]);
-
+                    this.socket.getOutputStream().write(encdec.encode(suitedPacket));
+                    this.socket.getOutputStream().flush();
                 }
+
                 else if(command.equals("RRQ")){
                     Path path = Paths.get(words[1]); //constructs the path to the file
                     Path filePath = path.toAbsolutePath();
@@ -63,10 +68,14 @@ public class TftpClientKeyboardThread extends Thread {
                     else{
                         Files.createFile(filePath);
                         suitedPacket = this.rrqPacketCreator(words[1]);
-                        this.socket.getOutputStream().write(suitedPacket);
+                        dirOrRRQinProcess = 1;
+                        currentPathRRQ = filePath;
+                        currentRRQfileName = words[1];
+                        this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                         this.socket.getOutputStream().flush();
                     }
                 }
+
                 else if(command.equals("WRQ")){
 
                     Path path = Paths.get(words[1]); //constructs the path to the file
@@ -81,19 +90,27 @@ public class TftpClientKeyboardThread extends Thread {
                     else{
                         Files.createFile(filePath);
                         suitedPacket = this.wrqPacketCreator(words[1]);
-                        this.socket.getOutputStream().write(suitedPacket);
+                        this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                         this.socket.getOutputStream().flush();
                     }
                 }
+
                 else if(command.equals("DIRQ")){
                     suitedPacket = this.dirqPacketCreator();
+                    this.socket.getOutputStream().write(encdec.encode(suitedPacket));
+                    this.socket.getOutputStream().flush();
 
                 }
+
                 else if(command.equals("DISC")){
                     suitedPacket = this.discPacketCreator();
+                    dirOrRRQinProcess = 0;
+                    this.socket.getOutputStream().write(encdec.encode(suitedPacket));
+                    this.socket.getOutputStream().flush();
                 }
                 
             }
+
         } catch (IOException e) {
             e.printStackTrace();
         }
