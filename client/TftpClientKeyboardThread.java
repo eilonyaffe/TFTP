@@ -97,6 +97,7 @@ public class TftpClientKeyboardThread extends Thread {
 
                 else if(command.equals("DIRQ")){
                     suitedPacket = this.dirqPacketCreator();
+                    dirOrRRQinProcess = 0;
                     this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                     this.socket.getOutputStream().flush();
 
@@ -104,7 +105,6 @@ public class TftpClientKeyboardThread extends Thread {
 
                 else if(command.equals("DISC")){
                     suitedPacket = this.discPacketCreator();
-                    dirOrRRQinProcess = 0;
                     this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                     this.socket.getOutputStream().flush();
                 }

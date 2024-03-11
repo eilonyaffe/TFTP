@@ -6,6 +6,7 @@ import java.io.DataOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -67,30 +68,49 @@ public class TftpClientListeningThread extends Thread {
     // dont forget dirOrRRQinProcess = -1; currentPath = null;
 
     private void dataPacketHandling(byte[] msg){
+        byte[] onlyInfo = Arrays.copyOfRange(msg, 6, msg.length);
+        
         if (TftpClientKeyboardThread.dirOrRRQinProcess == 1){ //RRQ data packet
             short packetBlockNum = (short) (((short) msg[4]) << 8 | (short) (msg[5]) & 0x00ff);
             short packetSize = (short) (((short) msg[2]) << 8 | (short) (msg[3]) & 0x00ff);
-            System.out.print("Handling DATA\nReceived: [");
-            
-            for (byte b : msg){
-                System.out.print();
-            }
-            //System.out.println("packet block number: " + packetBlockNum + " packet size is: " + packetSize);
-            byte[] onlyInfo = Arrays.copyOfRange(msg, 6, msg.length);
-            
+            System.out.println("Handling DATA\nReceived: " + Arrays.toString(msg));
+            System.out.println("packet block number: " + packetBlockNum + " packet size is: " + packetSize);
 
             try (FileOutputStream fos = new FileOutputStream(TftpClientKeyboardThread.currentPathRRQ.toString(), true)) {
                     fos.write(onlyInfo);
 
                 if(packetSize<512){ //in case RRQ is fully done
                     String nameFile = TftpClientKeyboardThread.currentRRQfileName;
-                    System.out.println("RRQ " + nameFile + " compleate");
+                    System.out.println("RRQ " + nameFile + " complete");
                     TftpClientKeyboardThread.dirOrRRQinProcess = -1;
                     TftpClientKeyboardThread.currentPathRRQ = null;
                     TftpClientKeyboardThread.currentRRQfileName = null;
                 }
                 sendACK(packetBlockNum);
             } catch (IOException e) {}
+          
+        }
+
+        else if (TftpClientKeyboardThread.dirOrRRQinProcess == 0){ //DIRQ data packet
+            System.out.println(Arrays.toString(msg));
+
+            ByteBuffer buffer = ByteBuffer.wrap(onlyInfo);
+            ByteArrayOutputStream bStream = new ByteArrayOutputStream();
+
+            while (buffer.hasRemaining()) {
+                byte b = buffer.get();
+                if (b == 0) { // zero byte, indicates end of file
+                    System.out.println(bStream.toString(StandardCharsets.UTF_8)); 
+                    bStream.reset(); 
+                }
+                else {
+                    bStream.write(b);
+                }
+            }
+            if (bStream.size() > 0) {
+                System.out.println(bStream.toString(StandardCharsets.UTF_8)); // print the last filename if there is one
+            }
+            TftpClientKeyboardThread.dirOrRRQinProcess = -1;
         }
 
     }
