@@ -52,14 +52,20 @@ public class TftpClientKeyboardThread extends Thread {
                 System.out.println(command);
                 //keyboard thread commands
                 byte[] suitedPacket;
+                String word;
 
-                StringBuilder sb = new StringBuilder();
-                for (int i = 1; i < words.length; i++){
-                    sb.append(words[i] + " ");
+                if (words.length > 1){
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 1; i < words.length; i++){
+                        sb.append(words[i] + " ");
+                    }
+                    word = sb.toString();
+                    word = word.substring(0, word.length() - 1); //remove last space
+                    System.out.println(word);
+                } 
+                else{
+                    word = words[1];
                 }
-                String word = sb.toString();
-                word = word.substring(0, word.length() - 1); //remove last space
-                System.out.println(word);
 
                 if(command.equals("LOGRQ")){
                    suitedPacket = this.logrqPacketCreator(word);
