@@ -71,13 +71,15 @@ import bgu.spl.net.api.MessageEncoderDecoder;
 public class TftpClient {
     //TODO: implement the main logic of the client, when using a thread per client the main logic goes here
     public static void main(String[] args) {
+        Object lock = new Object();
+
         try {
             Socket sock = new Socket("127.0.0.1", 7777);
             System.out.println("Connected to the server!");
 
             MessageEncoderDecoder<byte[]> encdec = new TftpEncoderDecoder();
 
-            TftpClientKeyboardThread keyboardThread = new TftpClientKeyboardThread(sock, encdec);
+            TftpClientKeyboardThread keyboardThread = new TftpClientKeyboardThread(sock, encdec, lock);
             Thread thread = new Thread(keyboardThread);
             thread.start();
             
@@ -92,7 +94,7 @@ public class TftpClient {
         //         System.out.println(nextMessage.toString());
         //     }
         // }
-        TftpClientListeningThread listeningThread = new TftpClientListeningThread(sock, encdec);
+        TftpClientListeningThread listeningThread = new TftpClientListeningThread(sock, encdec, lock);
         Thread thread2 = new Thread(listeningThread);
         thread2.start();
 

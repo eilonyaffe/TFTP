@@ -3,11 +3,14 @@ package bgu.spl.net.impl.tftp;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -15,6 +18,7 @@ import java.nio.file.Paths;
 import bgu.spl.net.api.MessageEncoderDecoder;
 
 public class TftpClientKeyboardThread extends Thread {
+    private final Object sharedLock;
     BufferedReader keyboardin = new BufferedReader(new InputStreamReader(System.in));
     //BufferedOutputStream outa;
     private final Socket socket;
@@ -22,10 +26,17 @@ public class TftpClientKeyboardThread extends Thread {
     protected volatile static int dirOrRRQinProcess; //indicates if there is a process of DIRQ (equals 0) or RRQ (equals 1) or none (-1)
     protected volatile static Path currentPathRRQ;
     protected volatile static String currentRRQfileName;
+    protected volatile static boolean disconnectRequested = false;
+    protected volatile static boolean closeFlag = false;
+    private boolean sending_data = false;
+    private int blockNumCounter;
+    private boolean nextends = false;
+    private FileInputStream fileoutstream;
 
-    public TftpClientKeyboardThread(Socket sock, MessageEncoderDecoder<byte[]> encdec) { //gets the socket of the client
+    public TftpClientKeyboardThread(Socket sock, MessageEncoderDecoder<byte[]> encdec, Object lock) { //gets the socket of the client
         this.socket = sock;  
         this.encdec = encdec; 
+        this.sharedLock = lock;
     }
 
     @Override
@@ -41,22 +52,29 @@ public class TftpClientKeyboardThread extends Thread {
                 System.out.println(command);
                 //keyboard thread commands
                 byte[] suitedPacket;
-              
+
+                StringBuilder sb = new StringBuilder();
+                for (int i = 1; i < words.length; i++){
+                    sb.append(words[i] + " ");
+                }
+                String word = sb.toString();
+                word = word.substring(0, word.length() - 1); //remove last space
+                System.out.println(word);
 
                 if(command.equals("LOGRQ")){
-                   suitedPacket = this.logrqPacketCreator(words[1]);
+                   suitedPacket = this.logrqPacketCreator(word);
                    this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                    this.socket.getOutputStream().flush();
                 }
 
                 else if(command.equals("DELRQ")){
-                    suitedPacket = this.deleqPacketCreator(words[1]);
+                    suitedPacket = this.deleqPacketCreator(word);
                     this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                     this.socket.getOutputStream().flush();
                 }
 
                 else if(command.equals("RRQ")){
-                    Path path = Paths.get(words[1]); //constructs the path to the file
+                    Path path = Paths.get(word); //constructs the path to the file
                     Path filePath = path.toAbsolutePath();
                     boolean isExist = false;
                     try {
@@ -67,10 +85,10 @@ public class TftpClientKeyboardThread extends Thread {
                         System.out.println("file already exists");
                     else{
                         Files.createFile(filePath);
-                        suitedPacket = this.rrqPacketCreator(words[1]);
+                        suitedPacket = this.rrqPacketCreator(word);
                         dirOrRRQinProcess = 1;
                         currentPathRRQ = filePath;
-                        currentRRQfileName = words[1];
+                        currentRRQfileName = word;
                         this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                         this.socket.getOutputStream().flush();
                     }
@@ -78,9 +96,10 @@ public class TftpClientKeyboardThread extends Thread {
 
                 else if(command.equals("WRQ")){
 
-                    Path path = Paths.get(words[1]); //constructs the path to the file
+                    Path path = Paths.get(word); //constructs the path to the file
                     Path filePath = path.toAbsolutePath();
                     boolean isExist = false;
+                    System.out.println(filePath.toString());
                     try {
                         isExist = Files.exists(filePath);
                     } catch (SecurityException e) {}
@@ -88,10 +107,16 @@ public class TftpClientKeyboardThread extends Thread {
                     if (!isExist)
                         System.out.println("file does not exists");
                     else{
-                        Files.createFile(filePath);
-                        suitedPacket = this.wrqPacketCreator(words[1]);
-                        this.socket.getOutputStream().write(encdec.encode(suitedPacket));
-                        this.socket.getOutputStream().flush();
+                        //sends the file in data packets to server waits for ack
+                        this.wrqPacketRequestCreator(word);
+
+                        // synchronized (sharedLock) {
+                        //     try {
+                        //         sharedLock.wait();
+                        //     } catch (InterruptedException e) {}
+                        // }
+                        this.wrqPacketDataCreator(word);
+
                     }
                 }
 
@@ -105,8 +130,14 @@ public class TftpClientKeyboardThread extends Thread {
 
                 else if(command.equals("DISC")){
                     suitedPacket = this.discPacketCreator();
+                    disconnectRequested = true;
                     this.socket.getOutputStream().write(encdec.encode(suitedPacket));
                     this.socket.getOutputStream().flush();
+                    break; //no need for keyboard thread from now on
+                }
+
+                else{
+                    System.out.println("Invalid Command");
                 }
                 
             }
@@ -114,9 +145,11 @@ public class TftpClientKeyboardThread extends Thread {
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        System.out.println("keyboard thread is closed");
     }
 
-    protected byte[] logrqPacketCreator(String username){
+    private byte[] logrqPacketCreator(String username){
         short a = 7;
         byte[] a_bytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
         byte[] usernameInBytes = stringToBytes(username);
@@ -131,7 +164,7 @@ public class TftpClientKeyboardThread extends Thread {
         return ans;
     }
 
-    protected byte[] deleqPacketCreator(String filename){
+    private byte[] deleqPacketCreator(String filename){
         short a = 8;
         byte[] a_bytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
         byte[] filenameInBytes = stringToBytes(filename);
@@ -146,7 +179,7 @@ public class TftpClientKeyboardThread extends Thread {
         return ans;
     }
 
-    protected byte[] rrqPacketCreator(String filename){
+    private byte[] rrqPacketCreator(String filename){
         short a = 1;
         byte[] a_bytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
         byte[] filenameInBytes = stringToBytes(filename);
@@ -161,7 +194,7 @@ public class TftpClientKeyboardThread extends Thread {
         return ans;
     }
 
-    protected byte[] wrqPacketCreator(String filename){
+    protected byte[] wrqPacketRequestCreator(String filename){
         short a = 2;
         byte[] a_bytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
         byte[] filenameInBytes = stringToBytes(filename);
@@ -175,6 +208,75 @@ public class TftpClientKeyboardThread extends Thread {
         ans[ans.length-1] = (byte)0;
         return ans;
     }
+
+
+    private void wrqPacketDataCreator(String fileName){
+        //TODO
+        System.out.println("sends data");
+        try{
+            if(!this.sending_data){
+                this.sending_data = true;
+                this.blockNumCounter = 0;
+                Path path = Paths.get(fileName); //constructs the path to the file
+                Path filePath = path.toAbsolutePath();
+                File fileToSend = new File(filePath.toString());
+                this.fileoutstream = new FileInputStream(fileToSend);
+            }
+    
+            byte[] slicedData;
+    
+            if(this.sending_data){
+                if(this.fileoutstream.available()>=0){
+                    if(this.fileoutstream.available()>=512){
+                        slicedData = new byte[512];
+                    }
+                    else{
+                        slicedData = new byte[this.fileoutstream.available()];
+                        this.nextends = true;
+                    }
+                    this.fileoutstream.read(slicedData);
+                    blockNumCounter++;
+                    byte[] readyPacket = createDataPacket(slicedData, blockNumCounter);
+                    //connectionsHolder.connectionsObj.send(this.connectionId, readyPacket);
+                    this.socket.getOutputStream().write(encdec.encode(readyPacket));
+                    this.socket.getOutputStream().flush();
+                }
+            }
+        } catch(IOException e){}
+    }
+
+    private byte[] createDataPacket(byte[] rawData, int blockNumber){
+        short a = 3;
+        byte[] opdcodeBytes = new byte []{( byte ) ( a >> 8) , ( byte ) ( a & 0xff ) };
+        byte[] packetSizeBytes = new byte []{( byte ) ( rawData.length >> 8) , ( byte ) ( rawData.length & 0xff ) };
+        byte[] blockNumBytes = new byte []{( byte ) ( blockNumber >> 8) , ( byte ) ( blockNumber & 0xff ) };
+
+
+        int totalLength = 6 + rawData.length;
+        ByteBuffer buffer = ByteBuffer.allocate(totalLength);
+        buffer.put(opdcodeBytes);
+        buffer.put(packetSizeBytes);
+        buffer.put(blockNumBytes);
+        buffer.put(rawData);
+
+        byte[] dataPacket = buffer.array(); 
+        return dataPacket;
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     protected byte[] dirqPacketCreator(){
         short a = 6;

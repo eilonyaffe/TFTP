@@ -16,11 +16,13 @@ public class TftpClientListeningThread extends Thread {
 
     private final Socket socket;
     private final MessageEncoderDecoder<byte[]> encdec;
+    private final Object sharedLock;
     private ByteArrayOutputStream  bufferForFileFromClient = new ByteArrayOutputStream ();
 
-    public TftpClientListeningThread(Socket sock, MessageEncoderDecoder<byte[]> encdec) { //gets the socket of the client
+    public TftpClientListeningThread(Socket sock, MessageEncoderDecoder<byte[]> encdec, Object lock) { //gets the socket of the client
         this.socket = sock;
         this.encdec = encdec;
+        this.sharedLock = lock;
     }
 
     @Override
@@ -45,6 +47,15 @@ public class TftpClientListeningThread extends Thread {
                     else if (opcode == 4){
                         short blockNumber = (short) (((short) msg[2]) << 8 | (short) (msg[3]) & 0x00ff);
                         System.out.println("ACK " + blockNumber);
+                        
+                        // synchronized (sharedLock){
+                        //     sharedLock.notify();
+                        // }
+
+                        if (blockNumber == 0 && TftpClientKeyboardThread.disconnectRequested){ //maybe dont need it
+                            System.out.println("close the program");
+                            break;
+                        }
                     }
 
                     else if(opcode == 5){
@@ -58,11 +69,13 @@ public class TftpClientListeningThread extends Thread {
                 }
             }
 
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
+        } catch (IOException e) {} 
+        finally {
+            try {
+                socket.close();
+            } catch (IOException e) {}
         }
-        
+        System.out.println("listening thread is closed");
     }
 
     // dont forget dirOrRRQinProcess = -1; currentPath = null;
@@ -78,7 +91,7 @@ public class TftpClientListeningThread extends Thread {
 
             try (FileOutputStream fos = new FileOutputStream(TftpClientKeyboardThread.currentPathRRQ.toString(), true)) {
                     fos.write(onlyInfo);
-
+                    sendACK(packetBlockNum);
                 if(packetSize<512){ //in case RRQ is fully done
                     String nameFile = TftpClientKeyboardThread.currentRRQfileName;
                     System.out.println("RRQ " + nameFile + " complete");
@@ -86,7 +99,6 @@ public class TftpClientListeningThread extends Thread {
                     TftpClientKeyboardThread.currentPathRRQ = null;
                     TftpClientKeyboardThread.currentRRQfileName = null;
                 }
-                sendACK(packetBlockNum);
             } catch (IOException e) {}
           
         }
@@ -150,9 +162,6 @@ public class TftpClientListeningThread extends Thread {
             this.socket.getOutputStream().write(encdec.encode(ack));
             this.socket.getOutputStream().flush();
 
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
+        } catch (IOException e) {}
     }
 }
