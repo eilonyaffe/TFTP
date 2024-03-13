@@ -20,7 +20,6 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
 
     @Override
     public byte[] decodeNextByte(byte nextByte) {
-        System.out.println("entered decoder");
         // TODO: implement this
         bytes.add(nextByte);
 
@@ -76,9 +75,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
                     this.packetSizeArray[this.packetSizeAccepted]=nextByte;
                 }
                 if(this.packetSizeAccepted==1){
-                    this.counter = ( short ) ((( short ) packetSizeArray [0] & 0xFF) << 8 | ( short ) ( packetSizeArray [1] & 0xFF) ) + 2; //plus two for incoming block number
-                    //fixed said problem from forum, former line: this.counter = ( short ) ((( short ) packetSizeArray [0]) << 8 | ( short ) ( packetSizeArray [1]) ) +2; //plus two for incoming block number
-                    this.packetSizeAccepted = 3;
+                    this.counter = ( short ) ((( short ) packetSizeArray [0]) << 8 | ( short ) ( packetSizeArray [1]) ) +2; //plus two for incoming block number
                 }
                 else if(this.counter!=-1){
                     this.counter--;
@@ -112,21 +109,7 @@ public class TftpEncoderDecoder implements MessageEncoderDecoder<byte[]> {
         this.packetSizeArray = new byte[2];
         this.messageType = -1;
         this.counter = -1;
-        this.bytes.clear();
+
         return bytesArray;
-    }
-
-    public static void main(String[] args) { //delete later, just testing
-
-        TftpEncoderDecoder encdec = new TftpEncoderDecoder();
-        byte[] b = new byte[12];
-        for(int i=0; i<=10; i++){
-            b[i] = (byte) i;
-        }
-        b[11] = 0;
-        for(byte bytebyte: b){
-            byte[] ans = encdec.decodeNextByte(bytebyte);
-            System.out.println(ans);
-        }
     }
 }
